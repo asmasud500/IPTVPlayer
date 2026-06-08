@@ -1,25 +1,39 @@
 package com.iptvplayer.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF6C63FF),
-    secondary = Color(0xFF03DAC5),
-    background = Color(0xFF0D0D1A),
-    surface = Color(0xFF1A1A2E),
-    onPrimary = Color.White,
-    onBackground = Color.White,
-    onSurface = Color.White,
-    error = Color(0xFFCF6679)
+    primary = PrimaryDark,
+    secondary = SecondaryDark,
+    tertiary = TertiaryDark,
+    background = BackgroundDark,
+    surface = SurfaceDark,
+    error = ErrorRed
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = PrimaryLight,
+    secondary = SecondaryLight,
+    tertiary = TertiaryLight,
+    background = BackgroundLight,
+    surface = SurfaceLight,
+    error = ErrorRed
 )
 
 @Composable
-fun IPTVTheme(content: @Composable () -> Unit) {
+fun IPTVPlayerTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
+        typography = Typography,
         content = content
     )
 }

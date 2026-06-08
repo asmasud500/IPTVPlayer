@@ -1,11 +1,31 @@
+# Gradle
+.gradle/
+build/
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Android Studio
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea
+*.iws
+*.ipr
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-*.jks
-*.keystore
+*.log
+
+# Local
+local.properties
+gradlew
+gradlew.bat
+gradle/
+
+# Misc
+*.swp
+*.swo
+*~
+.classpath
+.project
+.settings/
+.vscode/
+.env

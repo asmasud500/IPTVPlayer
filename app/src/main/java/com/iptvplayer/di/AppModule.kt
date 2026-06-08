@@ -2,10 +2,9 @@ package com.iptvplayer.di
 
 import android.content.Context
 import androidx.room.Room
-import com.iptvplayer.data.cache.ChannelDao
-import com.iptvplayer.data.cache.IPTVDatabase
-import com.iptvplayer.data.cache.PlaylistDao
-import com.iptvplayer.data.cache.WatchHistoryDao
+import com.iptvplayer.data.db.ChannelDatabase
+import com.iptvplayer.data.db.PlaylistDatabase
+import com.iptvplayer.data.network.ApiService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -13,6 +12,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -22,32 +24,62 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): IPTVDatabase {
-        return Room.databaseBuilder(
-            context,
-            IPTVDatabase::class.java,
-            "iptv_database"
-        ).fallbackToDestructiveMigration().build()
+    fun provideOkHttpClient(): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor { message ->
+            Timber.d("OkHttp: %s", message)
+        }.apply {
+            level = HttpLoggingInterceptor.Level.BASIC
+        }
+
+        return OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build()
     }
 
     @Provides
-    fun provideChannelDao(db: IPTVDatabase): ChannelDao = db.channelDao()
-
-    @Provides
-    fun providePlaylistDao(db: IPTVDatabase): PlaylistDao = db.playlistDao()
-
-    @Provides
-    fun provideWatchHistoryDao(db: IPTVDatabase): WatchHistoryDao = db.watchHistoryDao()
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl("https://api.iptvplayer.com/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
-        return OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BASIC
-            })
+    fun provideApiService(retrofit: Retrofit): ApiService {
+        return retrofit.create(ApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideChannelDatabase(
+        @ApplicationContext context: Context
+    ): ChannelDatabase {
+        return Room.databaseBuilder(
+            context,
+            ChannelDatabase::class.java,
+            "channel_db"
+        )
+            .fallbackToDestructiveMigration()
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun providePlaylistDatabase(
+        @ApplicationContext context: Context
+    ): PlaylistDatabase {
+        return Room.databaseBuilder(
+            context,
+            PlaylistDatabase::class.java,
+            "playlist_db"
+        )
+            .fallbackToDestructiveMigration()
             .build()
     }
 }
