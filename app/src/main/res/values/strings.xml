@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">IPTV Player</string>
+    <string name="channel_loading">লোড হচ্ছে...</string>
+    <string name="connection_error">সংযোগ ত্রুটি</string>
+    <string name="retry">পুনরায় চেষ্টা</string>
 </resources>
