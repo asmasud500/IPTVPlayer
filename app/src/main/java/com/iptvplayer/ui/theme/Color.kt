@@ -2,25 +2,12 @@ package com.iptvplayer.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Colors
-val PrimaryLight = Color(0xFF6200EE)
-val PrimaryDark = Color(0xFFBB86FC)
-
-// Secondary Colors
-val SecondaryLight = Color(0xFF03DAC6)
-val SecondaryDark = Color(0xFF03DAC6)
-
-// Tertiary Colors
-val TertiaryLight = Color(0xFF018786)
-val TertiaryDark = Color(0xFF03DAC6)
-
-// Background Colors
-val BackgroundLight = Color(0xFFFAFAFA)
-val BackgroundDark = Color(0xFF121212)
-
-// Surface Colors
-val SurfaceLight = Color(0xFFFFFFFF)
-val SurfaceDark = Color(0xFF1F1F1F)
-
-// Error Color
-val ErrorRed = Color(0xFFB00020)
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
+val Purple40 = Color(0xFF6650A4)
+val PurpleGrey40 = Color(0xFF625B71)
+val Pink40 = Color(0xFF7D5260)
+val PrimaryPurple = Color(0xFF6C63FF)
+val BackgroundDark = Color(0xFF0D0D1A)
+val SurfaceDark = Color(0xFF1A1A2E)
