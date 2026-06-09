@@ -20,15 +20,10 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Accept Android SDK licenses
-        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
-
-      - name: Install required SDK
+      - name: Accept SDK licenses & Install
         run: |
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "platform-tools" || true
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1
 
       - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
@@ -45,9 +40,21 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: |
+          set -e
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1
+          echo "=== Build output ==="
+          find . -name "*.apk" 2>/dev/null || echo "No APK found"
 
-      - name: Upload APK Artifact
+      - name: Verify APK exists
+        run: |
+          if [ ! -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            echo "ERROR: APK not found!"
+            exit 1
+          fi
+          echo "APK size: $(du -h app/build/outputs/apk/debug/app-debug.apk)"
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: IPTVPlayer-debug-apk
