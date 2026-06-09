@@ -15,10 +15,12 @@ import com.iptvplayer.data.model.AspectRatio
 import com.iptvplayer.data.model.Channel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @UnstableApi
@@ -27,7 +29,6 @@ class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    // ── Player State ──
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
@@ -53,94 +54,106 @@ class PlayerViewModel @Inject constructor(
     private var controlsHideJob: Job? = null
     private var reconnectAttempts = 0
 
-    // ── ExoPlayer তৈরি করো (Low Latency Config) ──
-    val player: ExoPlayer = ExoPlayer.Builder(context)
-        .setLoadControl(
-            DefaultLoadControl.Builder()
-                // IPTV লাইভ স্ট্রিমের জন্য বাফার কমাও
-                .setBufferDurationsMs(
-                    5_000,   // minBufferMs: ৫ সেকেন্ড
-                    15_000,  // maxBufferMs: ১৫ সেকেন্ড
-                    1_500,   // bufferForPlaybackMs
-                    3_000    // bufferForPlaybackAfterRebufferMs
-                )
-                .build()
-        )
-        .build()
-        .also { player ->
-            player.addListener(object : Player.Listener {
+    // BUG FIX #12: ExoPlayer lazy তৈরি — ViewModel init এ নয়
+    val player: ExoPlayer by lazy {
+        ExoPlayer.Builder(context)
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        5_000,
+                        15_000,
+                        1_500,
+                        3_000
+                    )
+                    .build()
+            )
+            .build()
+            .also { exoPlayer ->
+                exoPlayer.addListener(object : Player.Listener {
 
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    _isPlaying.value = playing
-                }
+                    override fun onIsPlayingChanged(playing: Boolean) {
+                        _isPlaying.value = playing
+                    }
 
-                override fun onPlaybackStateChanged(state: Int) {
-                    _isBuffering.value = state == Player.STATE_BUFFERING
-                    _isError.value = false
+                    override fun onPlaybackStateChanged(state: Int) {
+                        _isBuffering.value = state == Player.STATE_BUFFERING
+                        // BUG FIX #13: error reset শুধু READY state এ করো
+                        if (state == Player.STATE_READY) {
+                            _isError.value = false
+                        }
+                        if (state == Player.STATE_ENDED) {
+                            scheduleReconnect()
+                        }
+                    }
 
-                    if (state == Player.STATE_ENDED) {
-                        // লাইভ স্ট্রিম শেষ হলে পুনরায় চালু করো
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        _isBuffering.value = false
+                        _isError.value = true
+                        _errorMessage.value = "সংযোগ ত্রুটি। পুনরায় চেষ্টা করা হচ্ছে..."
                         scheduleReconnect()
                     }
-                }
+                })
+            }
+    }
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    _isError.value = true
-                    _errorMessage.value = "সংযোগ ত্রুটি। পুনরায় চেষ্টা করা হচ্ছে..."
-                    scheduleReconnect()
-                }
-            })
-        }
-
-    // ── চ্যানেল চালু করো ──
     fun playChannel(channel: Channel) {
         reconnectAttempts = 0
         reconnectJob?.cancel()
         _currentChannel.value = channel
         _isError.value = false
+        _isBuffering.value = true
         startStream(channel.url)
         scheduleHideControls()
     }
 
     private fun startStream(url: String) {
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
+        try {
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(20_000)
+                // BUG FIX #14: User-Agent যোগ করা হয়েছে — কিছু server ছাড়া block করে
+                .setUserAgent("IPTVPlayer/1.0 (Android)")
 
-        val mediaSource = when {
-            url.contains(".m3u8") || url.contains("hls") -> {
-                HlsMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(url))
+            val mediaSource = when {
+                url.contains(".m3u8", ignoreCase = true) ||
+                url.contains("hls", ignoreCase = true) ||
+                url.contains("m3u8", ignoreCase = true) -> {
+                    HlsMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(url))
+                }
+                else -> {
+                    ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(url))
+                }
             }
-            else -> {
-                ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(url))
-            }
+
+            player.stop()
+            player.clearMediaItems()
+            player.setMediaSource(mediaSource)
+            player.prepare()
+            player.playWhenReady = true
+        } catch (e: Exception) {
+            _isError.value = true
+            _errorMessage.value = "স্ট্রিম লোড করা যায়নি: ${e.message}"
         }
-
-        player.setMediaSource(mediaSource)
-        player.prepare()
-        player.play()
     }
 
-    // ── Auto Reconnect (৩ বার চেষ্টা) ──
     private fun scheduleReconnect() {
         if (reconnectAttempts >= 3) {
-            _errorMessage.value = "সংযোগ ব্যর্থ। স্ক্রিন স্পর্শ করে পুনরায় চেষ্টা করুন।"
+            _errorMessage.value = "সংযোগ ব্যর্থ। রিফ্রেশ বাটন চাপুন।"
             return
         }
         reconnectJob?.cancel()
         reconnectJob = viewModelScope.launch {
-            val delay = (reconnectAttempts + 1) * 3000L
-            _errorMessage.value = "সংযোগ বিচ্ছিন্ন। ${delay / 1000}s পরে পুনরায় সংযোগ করা হবে..."
-            delay(delay)
+            val delayMs = (reconnectAttempts + 1) * 3000L
+            _errorMessage.value = "${delayMs / 1000} সেকেন্ড পরে পুনরায় সংযোগ..."
+            delay(delayMs)
             reconnectAttempts++
             _currentChannel.value?.let { startStream(it.url) }
         }
     }
 
-    // ── Controls দেখানো / লুকানো ──
     fun toggleControls() {
         _showControls.value = !_showControls.value
         if (_showControls.value) scheduleHideControls()
@@ -159,21 +172,19 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    // ── Aspect Ratio সাইকেল ──
     fun cycleAspectRatio() {
         val ratios = AspectRatio.values()
         val next = (ratios.indexOf(_aspectRatio.value) + 1) % ratios.size
         _aspectRatio.value = ratios[next]
     }
 
-    // ── Play / Pause ──
     fun togglePlayPause() {
         if (player.isPlaying) player.pause() else player.play()
     }
 
-    // ── ম্যানুয়াল Reconnect ──
     fun retryConnection() {
         reconnectAttempts = 0
+        reconnectJob?.cancel()
         _isError.value = false
         _currentChannel.value?.let { startStream(it.url) }
     }
@@ -181,7 +192,11 @@ class PlayerViewModel @Inject constructor(
     override fun onCleared() {
         reconnectJob?.cancel()
         controlsHideJob?.cancel()
-        player.release()
+        // BUG FIX #15: lazy player — initialized হয়েছে কিনা চেক করে release
+        if (::player.isInitialized) {
+            player.stop()
+            player.release()
+        }
         super.onCleared()
     }
 }
