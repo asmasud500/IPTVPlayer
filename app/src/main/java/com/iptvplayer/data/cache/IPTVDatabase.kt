@@ -6,9 +6,6 @@ import com.iptvplayer.data.model.Playlist
 import com.iptvplayer.data.model.WatchHistory
 import kotlinx.coroutines.flow.Flow
 
-// ─────────────────────────────────────────────
-// Channel DAO
-// ─────────────────────────────────────────────
 @Dao
 interface ChannelDao {
 
@@ -24,8 +21,13 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE name LIKE '%' || :query || '%' ORDER BY name ASC")
     fun searchChannels(query: String): Flow<List<Channel>>
 
+    // BUG FIX #4: Room DAO-তে default parameter কাজ করে না
+    // আলাদা query তৈরি করা হয়েছে
+    @Query("SELECT * FROM channels ORDER BY watchCount DESC LIMIT 20")
+    fun getMostWatched(): Flow<List<Channel>>
+
     @Query("SELECT * FROM channels ORDER BY watchCount DESC LIMIT :limit")
-    fun getMostWatched(limit: Int = 20): Flow<List<Channel>>
+    fun getMostWatchedLimit(limit: Int): Flow<List<Channel>>
 
     @Query("SELECT DISTINCT `group` FROM channels ORDER BY `group` ASC")
     fun getAllGroups(): Flow<List<String>>
@@ -36,16 +38,14 @@ interface ChannelDao {
     @Query("UPDATE channels SET isFavorite = :isFavorite WHERE id = :channelId")
     suspend fun updateFavorite(channelId: String, isFavorite: Boolean)
 
+    // BUG FIX #5: Room DAO-তে default parameter নেই — time parameter mandatory
     @Query("UPDATE channels SET watchCount = watchCount + 1, lastWatched = :time WHERE id = :channelId")
-    suspend fun incrementWatchCount(channelId: String, time: Long = System.currentTimeMillis())
+    suspend fun incrementWatchCount(channelId: String, time: Long)
 
     @Query("DELETE FROM channels")
     suspend fun deleteAll()
 }
 
-// ─────────────────────────────────────────────
-// Playlist DAO
-// ─────────────────────────────────────────────
 @Dao
 interface PlaylistDao {
 
@@ -68,14 +68,12 @@ interface PlaylistDao {
     suspend fun deletePlaylist(id: String)
 }
 
-// ─────────────────────────────────────────────
-// Watch History DAO
-// ─────────────────────────────────────────────
 @Dao
 interface WatchHistoryDao {
 
-    @Query("SELECT * FROM watch_history ORDER BY watchedAt DESC LIMIT :limit")
-    fun getRecentHistory(limit: Int = 30): Flow<List<WatchHistory>>
+    // BUG FIX #6: Room DAO-তে default parameter নেই
+    @Query("SELECT * FROM watch_history ORDER BY watchedAt DESC LIMIT 30")
+    fun getRecentHistory(): Flow<List<WatchHistory>>
 
     @Upsert
     suspend fun upsertHistory(history: WatchHistory)
@@ -87,9 +85,6 @@ interface WatchHistoryDao {
     suspend fun clearAll()
 }
 
-// ─────────────────────────────────────────────
-// Room Database
-// ─────────────────────────────────────────────
 @Database(
     entities = [Channel::class, Playlist::class, WatchHistory::class],
     version = 1,
