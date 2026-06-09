@@ -4,8 +4,8 @@ import com.iptvplayer.data.cache.ChannelDao
 import com.iptvplayer.data.cache.PlaylistDao
 import com.iptvplayer.data.cache.WatchHistoryDao
 import com.iptvplayer.data.model.Channel
-import com.iptvplayer.data.model.LiveEvent
 import com.iptvplayer.data.model.EventCategory
+import com.iptvplayer.data.model.LiveEvent
 import com.iptvplayer.data.model.Playlist
 import com.iptvplayer.data.model.WatchHistory
 import com.iptvplayer.utils.M3UParser
@@ -21,23 +21,21 @@ class ChannelRepository @Inject constructor(
     private val watchHistoryDao: WatchHistoryDao,
     private val m3uParser: M3UParser
 ) {
-    // ── চ্যানেল লিস্ট ──
     fun getAllChannels(): Flow<List<Channel>> = channelDao.getAllChannels()
     fun getFavorites(): Flow<List<Channel>> = channelDao.getFavoriteChannels()
     fun searchChannels(query: String): Flow<List<Channel>> = channelDao.searchChannels(query)
+    // BUG FIX #7: getMostWatched() এখন fixed — no default param
     fun getMostWatched(): Flow<List<Channel>> = channelDao.getMostWatched()
     fun getChannelsByGroup(group: String): Flow<List<Channel>> = channelDao.getChannelsByGroup(group)
     fun getAllGroups(): Flow<List<String>> = channelDao.getAllGroups()
 
-    // ── Playlist লোড করো ──
     suspend fun loadPlaylistFromUrl(name: String, url: String): Result<Int> {
         return try {
             val channels = m3uParser.parseFromUrl(url)
             if (channels.isEmpty()) return Result.failure(Exception("কোনো চ্যানেল পাওয়া যায়নি"))
 
-            val playlistId = UUID.randomUUID().toString()
             val playlist = Playlist(
-                id = playlistId,
+                id = UUID.randomUUID().toString(),
                 name = name,
                 url = url,
                 isActive = true,
@@ -52,18 +50,17 @@ class ChannelRepository @Inject constructor(
 
             Result.success(channels.size)
         } catch (e: Exception) {
-            Result.failure(e)
+            Result.failure(Exception(e.message ?: "অজানা ত্রুটি"))
         }
     }
 
-    // ── Favorites ──
     suspend fun toggleFavorite(channel: Channel) {
         channelDao.updateFavorite(channel.id, !channel.isFavorite)
     }
 
-    // ── Watch History ──
+    // BUG FIX #8: incrementWatchCount এ time explicit পাঠানো হচ্ছে
     suspend fun recordWatch(channel: Channel) {
-        channelDao.incrementWatchCount(channel.id)
+        channelDao.incrementWatchCount(channel.id, System.currentTimeMillis())
         watchHistoryDao.upsertHistory(
             WatchHistory(
                 channelId = channel.id,
@@ -73,17 +70,14 @@ class ChannelRepository @Inject constructor(
         )
     }
 
-    fun getWatchHistory(): Flow<List<WatchHistory>> =
-        watchHistoryDao.getRecentHistory()
+    fun getWatchHistory(): Flow<List<WatchHistory>> = watchHistoryDao.getRecentHistory()
 
-    // ── Featured Live Events (Demo — API দিয়ে রিপ্লেস করুন) ──
     fun getFeaturedEvents(): List<LiveEvent> = listOf(
         LiveEvent(
             id = "1",
             title = "🏏 বাংলাদেশ vs ভারত",
             subtitle = "T20 বিশ্বকাপ • LIVE",
             category = EventCategory.CRICKET,
-            thumbnailUrl = "",
             isLive = true,
             viewerCount = "১২ লক্ষ দর্শক"
         ),
@@ -92,7 +86,6 @@ class ChannelRepository @Inject constructor(
             title = "⚽ ম্যানচেস্টার সিটি vs আর্সেনাল",
             subtitle = "প্রিমিয়ার লিগ • LIVE",
             category = EventCategory.FOOTBALL,
-            thumbnailUrl = "",
             isLive = true,
             viewerCount = "৮ লক্ষ দর্শক"
         ),
@@ -101,7 +94,6 @@ class ChannelRepository @Inject constructor(
             title = "📺 ব্রেকিং নিউজ",
             subtitle = "আজকের সর্বশেষ সংবাদ",
             category = EventCategory.NEWS,
-            thumbnailUrl = "",
             isLive = true,
             viewerCount = "৫ লক্ষ দর্শক"
         ),
@@ -110,12 +102,11 @@ class ChannelRepository @Inject constructor(
             title = "🎬 বিশেষ চলচ্চিত্র",
             subtitle = "সন্ধ্যার বিশেষ আয়োজন",
             category = EventCategory.ENTERTAINMENT,
-            thumbnailUrl = "",
             isLive = false,
             viewerCount = "৩ লক্ষ দর্শক"
         )
     )
 
-    // ── Auto-Suggest (দেখার ইতিহাস ও গ্রুপের ভিত্তিতে) ──
-    fun getSuggestedChannels(): Flow<List<Channel>> = channelDao.getMostWatched(10)
+    // BUG FIX #9: getMostWatched(10) এর পরিবর্তে getMostWatchedLimit(10) ব্যবহার
+    fun getSuggestedChannels(): Flow<List<Channel>> = channelDao.getMostWatchedLimit(10)
 }
