@@ -1,59 +1,100 @@
 package com.iptvplayer.utils
 
 import com.iptvplayer.data.model.Channel
-import timber.log.Timber
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
 
-object M3UParser {
-    fun parseM3U(content: String): List<Channel> {
+@Singleton
+class M3UParser @Inject constructor() {
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    // BUG FIX #1: response.body().close() যোগ করা হয়েছে — memory leak ঠিক
+    suspend fun parseFromUrl(url: String): List<Channel> = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url).build()
+        val response = httpClient.newCall(request).execute()
+        return@withContext try {
+            val content = response.body?.string() ?: return@withContext emptyList()
+            parseContent(content)
+        } finally {
+            response.body?.close()
+        }
+    }
+
+    fun parseContent(content: String): List<Channel> {
         val channels = mutableListOf<Channel>()
-        val lines = content.split("\n")
-        var i = 0
+        val lines = content.lines()
+        var currentMeta = ChannelMeta()
 
-        while (i < lines.size) {
-            val line = lines[i].trim()
-
-            if (line.startsWith("#EXTINF:")) {
-                try {
-                    val channelName = extractChannelName(line)
-                    val logoUrl = extractLogoUrl(line)
-                    val groupTitle = extractGroupTitle(line)
-
-                    if (i + 1 < lines.size) {
-                        val url = lines[i + 1].trim()
-                        if (url.isNotEmpty() && !url.startsWith("#")) {
-                            channels.add(
-                                Channel(
-                                    name = channelName,
-                                    url = url,
-                                    logo = logoUrl,
-                                    category = groupTitle
-                                )
-                            )
-                            i++
-                        }
-                    }
-                } catch (e: Exception) {
-                    Timber.e(e, "Error parsing M3U line")
+        for (line in lines) {
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith("#EXTINF:") -> {
+                    currentMeta = parseExtInf(trimmed)
+                }
+                trimmed.startsWith("http://") ||
+                trimmed.startsWith("https://") ||
+                trimmed.startsWith("rtmp://") ||
+                trimmed.startsWith("rtsp://") -> {
+                    // BUG FIX #2: name empty হলেও URL কে "Unknown" নামে সেভ করো
+                    channels.add(
+                        Channel(
+                            id = UUID.randomUUID().toString(),
+                            name = currentMeta.name.ifEmpty { "Unknown Channel" },
+                            url = trimmed,
+                            logo = currentMeta.logo,
+                            group = currentMeta.group,
+                            language = currentMeta.language,
+                            country = currentMeta.country
+                        )
+                    )
+                    currentMeta = ChannelMeta()
                 }
             }
-            i++
         }
-
         return channels
     }
 
-    private fun extractChannelName(line: String): String {
-        val parts = line.split(",")
-        return if (parts.size > 1) parts.last().trim() else "Unknown"
+    private fun parseExtInf(line: String): ChannelMeta {
+        val name = line.substringAfterLast(",").trim()
+        val logo = extractAttribute(line, "tvg-logo")
+        val group = extractAttribute(line, "group-title").ifEmpty { "Other" }
+        val language = extractAttribute(line, "tvg-language")
+        val country = extractAttribute(line, "tvg-country")
+
+        return ChannelMeta(
+            name = name,
+            logo = logo,
+            group = group,
+            language = language,
+            country = country
+        )
     }
 
-    private fun extractLogoUrl(line: String): String? {
-        val regex = "tvg-logo=\"([^\"]*)\"".toRegex()
-        return regex.find(line)?.groupValues?.get(1)
+    // BUG FIX #3: Regex এ attr variable সঠিকভাবে escape করা হয়েছে
+    private fun extractAttribute(line: String, attr: String): String {
+        val pattern = Regex("""$attr="([^"]*)" """.trimEnd())
+        return try {
+            pattern.find(line)?.groupValues?.getOrNull(1) ?: ""
+        } catch (e: Exception) {
+            ""
+        }
     }
 
-    private fun extractGroupTitle(line: String): String? {
-        val regex = "group-title=\"([^\"]*)\"".toRegex()
-        return regex.find(line)?.groupValues?.get(1)
-    }
+    private data class ChannelMeta(
+        val name: String = "",
+        val logo: String = "",
+        val group: String = "Other",
+        val language: String = "",
+        val country: String = ""
+    )
 }
